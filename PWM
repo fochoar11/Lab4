@@ -1,0 +1,92 @@
+#include <Arduino.h>
+#include <stdint.h>
+#include <driver/ledc.h>
+
+// pines para LEDs RGB
+#define led_r 16
+#define led_g 4
+#define led_b 2
+
+// pines para botones
+#define btn_color 18     // botón que selecciona el color 
+#define btn_brillo 21    // botón que cambia el brillo 
+
+// configuración PWM
+#define freq_pwm 100      // frecuencia de la señal PWM en Hz
+#define res_pwm 8         // resolución de 8 bits
+#define brillo 255    // brillo máximo porque va lo puse de 8 bits por lo que va de 0 a 255
+#define niveles 4         // cantidad de niveles de brillo 
+
+// canales PWM para cada LED
+#define canal_r 0
+#define canal_g 1
+#define canal_b 2
+
+// variables de control
+int color_seleccionado = 0;             
+int brillo_actual[3] = {0, 0, 0};       // nivel de brillo actual para cada color
+int valores_pwm[niveles + 1];         
+
+// prototipos de funciones
+void init_pwm();
+void cambiar_color();
+void cambiar_brillo();
+
+void setup() {
+  // configurar pines de botones como entradas
+  pinMode(btn_color, INPUT);
+  pinMode(btn_brillo, INPUT);
+
+  // inicializar canales PWM para cada LED
+  init_pwm();
+
+  
+  for (int i = 0; i <= niveles; i++) {
+    valores_pwm[i] = (brillo / niveles) * i; // regla de tres para distribuir los niveles del valor maximo de bits 
+  }
+
+  // canales separados
+  ledcWrite(canal_r, 0);
+  ledcWrite(canal_g, 0);
+  ledcWrite(canal_b, 0);
+}
+
+void loop() {
+  // si se presiona el botón de selección de color, cambiar al siguiente
+  if (digitalRead(btn_color) == HIGH) {
+    cambiar_color();
+    delay(200); // anti-rebote simple
+  }
+
+  // si se presiona el botón de brillo, cambiar al siguiente nivel
+  if (digitalRead(btn_brillo) == HIGH) {
+    cambiar_brillo();
+    delay(200); // anti-rebote simple
+  }
+
+  // aplicar el brillo correspondiente a cada canal PWM
+  ledcWrite(canal_r, valores_pwm[brillo_actual[0]]);
+  ledcWrite(canal_g, valores_pwm[brillo_actual[1]]);
+  ledcWrite(canal_b, valores_pwm[brillo_actual[2]]);
+}
+
+// inicializa los 3 canales PWM con la frecuencia y resolución
+void init_pwm() {
+  ledcSetup(canal_r, freq_pwm, res_pwm);
+  ledcSetup(canal_g, freq_pwm, res_pwm);
+  ledcSetup(canal_b, freq_pwm, res_pwm);
+
+  ledcAttachPin(led_r, canal_r);
+  ledcAttachPin(led_g, canal_g);
+  ledcAttachPin(led_b, canal_b);
+}
+
+// pasa al siguiente color a modificar
+void cambiar_color() {
+  color_seleccionado = (color_seleccionado + 1) % 3;//para asegurar que el valor siempre sea entre 0 y 2
+}
+
+// aumenta el brillo del color seleccionado y regresa a apagado si estaba en máximo
+void cambiar_brillo() {
+  brillo_actual[color_seleccionado] = (brillo_actual[color_seleccionado] + 1) % (niveles + 1);//hace que si el brillo llega al valor macimo, regrese a apagarse
+}
