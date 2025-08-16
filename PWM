@@ -2,60 +2,231 @@
 #include <stdint.h>
 #include <driver/ledc.h>
 
-// pines para los botones del servo
-#define btn1 14
-#define btn2 27
+// pines para LEDs RGB
+#define led_r 16
+#define led_g 4
+#define led_b 2
 
-// pin del servo
-#define servo_pin 25
+// pines para botones
+#define btn_color 18     // botón que selecciona el color 
+#define btn_brillo 21    // botón que cambia el brillo 
+//botones de servo
+#define btn1 14          
+#define btn2 27         
 
-// configuración pwm para servo
-#define freq_servo 50      
-#define res_servo 8        
-#define canal_servo 3      
+// configuración PWM
+#define freq_pwm 100      // frecuencia de la señal en hz
+#define res_pwm 8         // resolución de 8 bits
+#define brillo_max 255    // es el brillo maximo (255) porque son 8 bits
+#define niveles 4         // cantidad de niveles de brillo 
+
+// canales PWM para cada LED
+#define canal_r 0
+#define canal_g 1
+#define canal_b 2
+#define canal_servo 3
 
 // variables de control
-int posicion_actual = 2;    
-const int posiciones[5] = {500, 1000, 1500, 2000, 2500}; 
+int color_seleccionado = 0;             
+int brillo_actual[3] = {0, 0, 0};       
+int valores_pwm[niveles + 1];           
 
-// prototipos
+// variables servo
+int posicion_actual = 2;
+const int posiciones[5] = {500, 1000, 1500, 2000, 2500};
+
+//modo de operacion (el 0,1,2 para leds y el 3 para el servo)
+int modo = 0; 
+
+// prototipos de funciones
+void init_pwm();
+void cambiar_color();
+void cambiar_brillo();
 uint32_t us_to_duty(int us);
 void mover_servo(int pos);
+void actualizar_color_servo();
 
 void setup() {
+  // configurar pines de botones como entradas
+  pinMode(btn_color, INPUT);
+  pinMode(btn_brillo, INPUT);
   pinMode(btn1, INPUT);
   pinMode(btn2, INPUT);
 
-  ledcSetup(canal_servo, freq_servo, res_servo);
-  ledcAttachPin(servo_pin, canal_servo);
+  // inicializar canales PWM para cada LED
+  init_pwm();
 
-  ledcWrite(canal_servo, us_to_duty(posiciones[posicion_actual]));
+  for (int i = 0; i <= niveles; i++) {
+    valores_pwm[i] = (brillo_max / niveles) * i; // regla de tres para distribuir los niveles de brillo
+  }
+
+  // empezar con las leds apagadas
+  ledcWrite(canal_r, 0);
+  ledcWrite(canal_g, 0);
+  ledcWrite(canal_b, 0);
+
+  // 
+  ledcSetup(canal_servo, 50, 16);  
+  ledcAttachPin(25, canal_servo);  
+  mover_servo(posicion_actual);
 }
 
 void loop() {
-  if (digitalRead(btn1) == HIGH) {
-    if (posicion_actual < 4) {
-      posicion_actual++;
-      mover_servo(posicion_actual);
+  static bool btn_color_prev = false;
+  bool btn_color_now = (digitalRead(btn_color) == HIGH);
+  
+  // cambio de modo
+  if (btn_color_now && !btn_color_prev) {
+    modo = (modo + 1) % 4; 
+    delay(200); // delay pequeño porque se movia el servo de la nada
+  }
+  btn_color_prev = btn_color_now;
+
+  // para que entre modos se pueda mover el servo sin cambiar de color las leds
+  if (modo == 0 || modo == 1 || modo == 2) {
+    // mover el servo con lso botones
+    if (digitalRead(btn1) == HIGH) {
+      if (posicion_actual < 4) {
+        posicion_actual++;
+        mover_servo(posicion_actual);  
+      }
+      delay(200); // // delay pequeño porque se movia el servo de la nada
     }
-    delay(200);
+
+    if (digitalRead(btn2) == HIGH) {
+      if (posicion_actual > 0) {
+        posicion_actual--;
+        mover_servo(posicion_actual); 
+      }
+      delay(200); //delay pequeño porque se movia el servo de la nada
+    }
   }
 
-  if (digitalRead(btn2) == HIGH) {
-    if (posicion_actual > 0) {
-      posicion_actual--;
-      mover_servo(posicion_actual);
+  // colroes y brillo
+  if (modo == 0) {  
+    if (digitalRead(btn_brillo) == HIGH) {
+      cambiar_brillo();  // cambiar brillo del led rojo
+      delay(200); // antirebote simple
     }
-    delay(200);
+
+    // aplicar brillo al led rojo
+    ledcWrite(canal_r, valores_pwm[brillo_actual[0]]);
+    ledcWrite(canal_g, 0);
+    ledcWrite(canal_b, 0);
+
+  } else if (modo == 1) {  // 
+    if (digitalRead(btn_brillo) == HIGH) {
+      cambiar_brillo();  // cambiar brillo del led verde
+      delay(200); // antirebote simple
+    }
+
+    // aplicar brillo al led verde
+    ledcWrite(canal_r, 0);
+    ledcWrite(canal_g, valores_pwm[brillo_actual[1]]);
+    ledcWrite(canal_b, 0);
+
+  } else if (modo == 2) {  
+    if (digitalRead(btn_brillo) == HIGH) {
+      cambiar_brillo();  // cambiar brillo del led azul
+      delay(200); // antirebote simple
+    }
+
+    // aplicar brillo al led azul
+    ledcWrite(canal_r, 0);
+    ledcWrite(canal_g, 0);
+    ledcWrite(canal_b, valores_pwm[brillo_actual[2]]);
+
+  } else if (modo == 3) {  //servo mas leds
+    
+    if (digitalRead(btn1) == HIGH) {
+      if (posicion_actual < 4) {
+        posicion_actual++;
+        mover_servo(posicion_actual);
+        actualizar_color_servo();
+      }
+      delay(200); // antirebote simple
+    }
+
+    if (digitalRead(btn2) == HIGH) {
+      if (posicion_actual > 0) {
+        posicion_actual--;
+        mover_servo(posicion_actual);
+        actualizar_color_servo();
+      }
+      delay(200); // antirebote simple
+    }
   }
 }
 
+void init_pwm() {
+  ledcSetup(canal_r, freq_pwm, res_pwm);
+  ledcSetup(canal_g, freq_pwm, res_pwm);
+  ledcSetup(canal_b, freq_pwm, res_pwm);
+
+  ledcAttachPin(led_r, canal_r);
+  ledcAttachPin(led_g, canal_g);
+  ledcAttachPin(led_b, canal_b);
+}
+
+void cambiar_color() {
+  // cambiar color 
+  color_seleccionado = (color_seleccionado + 1) % 3;  
+}
+
+void cambiar_brillo() {
+  // cambiar el brillo
+  if (modo == 0) { // LED rojo
+    brillo_actual[0] = (brillo_actual[0] + 1) % (niveles + 1);
+  } else if (modo == 1) { // led verde
+    brillo_actual[1] = (brillo_actual[1] + 1) % (niveles + 1);
+  } else if (modo == 2) { // led azul
+    brillo_actual[2] = (brillo_actual[2] + 1) % (niveles + 1);
+  }
+
+  
+  ledcWrite(canal_r, valores_pwm[brillo_actual[0]]);
+  ledcWrite(canal_g, valores_pwm[brillo_actual[1]]);
+  ledcWrite(canal_b, valores_pwm[brillo_actual[2]]);
+}
+
 uint32_t us_to_duty(int us) {
-  uint32_t max_duty = (1 << res_servo) - 1;
-  uint32_t periodo_us = 1000000 / freq_servo; 
+  uint32_t max_duty = (1 << 16) - 1;  
+  uint32_t periodo_us = 1000000 / 50;  
   return (us * max_duty) / periodo_us;
 }
 
 void mover_servo(int pos) {
   ledcWrite(canal_servo, us_to_duty(posiciones[pos]));
 }
+
+
+void actualizar_color_servo() {
+  switch (posicion_actual) {
+    case 0:
+    case 4:
+      //en los extremos se apagan todas
+      ledcWrite(canal_r, 0);
+      ledcWrite(canal_g, 0);
+      ledcWrite(canal_b, 0);
+      break;
+    case 1:
+      // Rojo
+      ledcWrite(canal_r, brillo_max);
+      ledcWrite(canal_g, 0);
+      ledcWrite(canal_b, 0);
+      break;
+    case 2:
+      // Verde
+      ledcWrite(canal_r, 0);
+      ledcWrite(canal_g, brillo_max);
+      ledcWrite(canal_b, 0);
+      break;
+    case 3:
+      // Azul
+      ledcWrite(canal_r, 0);
+      ledcWrite(canal_g, 0);
+      ledcWrite(canal_b, brillo_max);
+      break;
+  }
+}
+ 
